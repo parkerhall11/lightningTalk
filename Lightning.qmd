@@ -1,0 +1,345 @@
+---
+title: "Lightning"
+format: pdf
+editor: visual
+---
+
+```{r}
+
+library("nflfastR")
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+pbp <- nflfastR::load_pbp(2010:2025)
+```
+
+Filter Data set
+```{r}
+
+
+packers <- pbp |> 
+  filter(posteam == 'GB')
+
+packers <- packers |>
+  select(season_type,season ,game_id,old_game_id, home_team ,posteam,home_score,away_score ,play_type, pass, rush, yards_gained,result)
+
+packers <- packers |>
+  filter(season_type == 'REG' & (play_type == 'pass' | play_type == 'run'))
+
+#View(packers)  
+
+```
+
+#Creating Total Rushing and Passing Yard Values
+```{r}
+#Creating Total Rushing and Passing Yard Values
+packers <- packers |>
+  group_by(season) |>
+  mutate(
+    total_rushing_yds = sum(yards_gained[rush == 1], na.rm = TRUE),
+    total_passing_yds = sum(yards_gained[pass == 1], na.rm = TRUE)
+  ) |>
+  ungroup()
+glimpse(packers)
+
+```
+#Creating Season_Summary Data
+```{r}
+
+season_summary <- packers |>
+  group_by(season)|>
+  summarise(total_rushing_yds = sum(yards_gained[rush == 1], na.rm = TRUE),
+            total_passing_yds = sum(yards_gained[pass == 1], na.rm = TRUE),
+            total_yds = (total_rushing_yds + total_passing_yds),
+            wins = length(unique(game_id[if_else(home_team == 'GB', result>0, result<0 )])),
+            losses = length(unique(game_id[if_else(home_team == 'GB', result<0, result>0 )])),
+            ties = length(unique(game_id[result==0]))
+            )
+season_summary
+
+```
+#Plotting
+```{r}
+
+
+#total passing
+p1 <- season_summary |>
+  ggplot(aes(factor(season),total_passing_yds))+
+  geom_col(fill = "#203731", width= .7) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  coord_cartesian(ylim=c(3000,5000))+
+  labs(
+    title = "Total Passing Yards per Season",
+    x = "Season",
+    y = "Yards"
+  ) 
+#total rushing
+p2 <- season_summary |>
+  ggplot(aes(factor(season),total_rushing_yds))+
+  geom_col(fill = "#FFB612", width= .7) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  coord_cartesian(ylim=c(700,2500))+
+  labs(
+    title = "Total Rushing Yards per Season",
+    x = "Season",
+    y = "Yards"
+  ) 
+  
+#total yds
+p3<- season_summary |>
+  ggplot(aes(factor(season),total_yds))+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  geom_col(fill = "#FFB612", width= .7) +
+  coord_cartesian(ylim=c(4000,7000))+
+  labs(
+    title = "Total Yards per Season",
+    x = "Season",
+    y = "Yards"
+  )
+
+#Wins
+p4<-season_summary |>
+  ggplot(aes(factor(season),wins))+
+  geom_col(fill = "#203731", width= .7) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  geom_text(aes(label = wins), vjust = -0.5, size = 3)+
+  scale_y_continuous(breaks = seq(0, 16, by = 2)) +
+  labs(
+    title = "Total Wins",
+    x = "Season",
+    y = "Wins"
+  )
+
+
+ggsave("passing_yds.png", p1, width = 6, height = 4, dpi = 300)
+ggsave("rushing_yds.png", p2, width = 6, height = 4, dpi = 300)
+ggsave("total_yds.png", p3, width = 6, height = 4, dpi = 300)
+ggsave("wins.png", p4, width = 6, height = 4, dpi = 300)
+
+```
+
+#Packers Offense vs Def averages
+```{r}
+
+packers_seasonal_stats <- packers |>
+  
+  distinct(game_id, .keep_all = TRUE) |>
+  mutate(
+    pts_scored = if_else(home_team == "GB", home_score, away_score),
+    pts_allowed = if_else(home_team == "GB", away_score, home_score)
+  ) |>
+  group_by(season) |>
+  summarise(
+    avg_pts_scored = mean(pts_scored, na.rm = TRUE),
+    avg_pts_allowed = mean(pts_allowed, na.rm = TRUE)
+  ) |>
+  ungroup()
+
+print(packers_seasonal_stats)
+
+p5 <- packers_seasonal_stats |>
+  ggplot(aes(x = avg_pts_allowed, y = avg_pts_scored)) +
+    
+    geom_vline(xintercept = mean(packers_seasonal_stats$avg_pts_allowed), 
+               linetype = "dashed", color = "gray70") +
+    geom_hline(yintercept = mean(packers_seasonal_stats$avg_pts_scored), 
+               linetype = "dashed", color = "gray70") +
+    
+    geom_point(color = "#203731", size = 4) + 
+    
+    geom_text(aes(label = season), vjust = -1, size = 3.5, fontface = "bold") +
+    
+    labs(
+      title = "Packers Offensive vs. Defensive Efficiency (2010-2025)",
+      x = "Avg Points Allowed (Defense)",
+      y = "Avg Points Scored (Offense)"
+    ) +
+    expand_limits(y = c(min(packers_seasonal_stats$avg_pts_scored) - 2, 
+                        max(packers_seasonal_stats$avg_pts_scored) + 2))
+
+p7 <- packers_seasonal_stats |>
+  ggplot(aes(factor(season), avg_pts_allowed))+
+  geom_col(fill = "#FFB612", width= .7) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  coord_cartesian(ylim=c(10,35)) +
+  geom_text(aes(label = round(avg_pts_allowed,1)), vjust = -0.5, size = 3)+
+  labs(
+    
+    x = "Season",
+    y = "Points Allowed"
+  )
+
+p8 <- packers_seasonal_stats |>
+  ggplot(aes(factor(season), avg_pts_scored))+
+  geom_col(fill = "#203731", width= .7) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  coord_cartesian(ylim=c(10,35)) +
+  geom_text(aes(label = round(avg_pts_scored,1)), vjust = -0.5, size = 3)+
+  labs(
+    
+    x = "Season",
+    y = "Points Allowed"
+  )
+
+ggsave("OffvsDef.png", p5, width = 6, height = 4, dpi = 300)
+ggsave("AvgAllowed.png", p7, width = 6, height = 4, dpi = 300)
+ggsave("AvgScored.png", p8, width = 6, height = 4, dpi = 300)
+
+
+```
+
+
+#Packer 2010 Stats
+```{r}
+#Packers 2010-2011 Stats
+pack2010 <- pbp |>
+  filter(season == 2010 & (home_team =='GB' | away_team == 'GB'))
+
+pack_2010_stats <- pack2010|>
+  distinct(game_id, .keep_all = TRUE) |>
+  mutate(
+    pts_scored = if_else(home_team == "GB", home_score, away_score),
+    pts_allowed = if_else(home_team == "GB", away_score, home_score)
+  ) |>
+  summarise(
+    avg_pts_scored = mean(pts_scored, na.rm = TRUE),
+    avg_pts_allowed = mean(pts_allowed, na.rm = TRUE)
+  ) 
+
+pack2010|>
+  filter(season_type == 'REG',play == 1,posteam == 'GB')|>
+  mutate(total_rushing_yds = sum(yards_gained[rush == 1], na.rm = TRUE),
+          total_passing_yds = sum(yards_gained[pass == 1], na.rm = TRUE),
+          total_yds = (total_rushing_yds + total_passing_yds),
+          avg_rushing = total_rushing_yds/16,
+         avg_passing = total_passing_yds/16,
+         avg_yds = total_yds/16
+         )|>
+  summarise(total_rushing_yds = sum(yards_gained[rush == 1], na.rm = TRUE),
+              total_passing_yds = sum(yards_gained[pass == 1], na.rm = TRUE),
+              total_yds = (total_rushing_yds + total_passing_yds),
+              wins = length(unique(game_id[if_else(home_team == 'GB', result>0, result<0 )])),
+              losses = length(unique(game_id[if_else(home_team == 'GB', result<0, result>0 )])),
+              ties = length(unique(game_id[result==0]))
+            )
+
+
+
+library(patchwork) #can create grid of plots
+library(ggforce) #has geom_circle
+
+#Admittedly Used Ai for this next section, I did not know how to create circles
+#and it provided me a function which is the reasonable as to not have redundant code
+plot_metric <- function(value, label, color = "#203731") {
+  ggplot() +
+    
+    geom_circle(aes(x0 = 0, y0 = 0, r = 1), 
+                fill = "#FFB612", color = color, size = 2) +
+    annotate("text", x = 0, y = 0.1, label = value, 
+             size = 12, fontface = "bold", color = color) +
+    annotate("text", x = 0, y = -0.4, label = label, 
+             size = 4, fontface = "bold", color = "gray40") +
+    coord_fixed() +
+    theme_void() 
+}
+
+#Create Four instances of the circle function
+#uses data found above
+m1 <- plot_metric("24.2", "AVG POINTS\nSCORED")
+m2 <- plot_metric("15.0", "AVG POINTS\nALLOWED")
+m3 <- plot_metric("4,131", "PASSING\nYARDS")
+m4 <- plot_metric("1,608", "RUSHING\nYARDS")
+
+
+p6 <- (m1 + m2) / (m3 + m4) + 
+  plot_annotation(
+    title = '2010 Season Analytics',
+    theme = theme(
+      plot.title = element_text(size = 20, face = "bold", hjust = 0.5, family = "serif"),
+    )
+  )
+
+ggsave("2010Season.png",p6,width = 6, height = 6, dpi = 300)
+```
+
+
+
+#For fun stuff
+```{r}
+#this was merely curiosity to see how the packers lined up against the patriots
+#the results were very interesting showing that statistically the packers had far better teams than the patriots
+
+patriots_stats <- pbp |>
+  filter(season_type == 'REG')|>
+  filter(season >= 2010 & season <= 2025) |>
+  # One row per game to get final scores
+  distinct(game_id, .keep_all = TRUE) |>
+  # Identify points scored vs allowed based on home/away status
+  mutate(
+    pts_scored = if_else(home_team == "NE", home_score, away_score),
+    pts_allowed = if_else(home_team == "NE", away_score, home_score)
+  ) |>
+  group_by(season) |>
+  summarise(
+    avg_pts_scored = mean(pts_scored, na.rm = TRUE),
+    avg_pts_allowed = mean(pts_allowed, na.rm = TRUE)
+  ) |>
+  ungroup()
+
+ggplot(patriots_stats, aes(x = avg_pts_allowed, y = avg_pts_scored)) +
+
+  geom_vline(xintercept = mean(patriots_stats$avg_pts_allowed), 
+             linetype = "dashed", color = "gray70") +
+  geom_hline(yintercept = mean(patriots_stats$avg_pts_scored), 
+             linetype = "dashed", color = "gray70") +
+  
+
+  geom_point(color = "#002244", size = 4) + 
+  geom_text(aes(label = season), vjust = -1.2, size = 3.5, fontface = "bold",alpha= .5) +
+  
+  labs(
+    title = "Patriots Offensive vs. Defensive Efficiency (2010-2025)",
+    x = "Avg Points Allowed (Defense)",
+    y = "Avg Points Scored (Offense)"
+  ) +
+  # Stretch the axes so labels don't get cut off
+  expand_limits(y = c(min(patriots_stats$avg_pts_scored) - 3, 
+                      max(patriots_stats$avg_pts_scored) + 3)) +
+  theme_minimal()
+
+
+
+# Combine the Packers and Patriots stats
+combined_stats <- bind_rows(
+  packers_seasonal_stats |> mutate(team = "Packers"),
+  patriots_stats |> mutate(team = "Patriots")
+)
+
+ggplot(combined_stats, aes(x = avg_pts_allowed, y = avg_pts_scored, color = team)) +
+  geom_vline(xintercept = mean(combined_stats$avg_pts_allowed), 
+             linetype = "dashed", color = "gray80") +
+  geom_hline(yintercept = mean(combined_stats$avg_pts_scored), 
+             linetype = "dashed", color = "gray80") +
+  
+
+  geom_point(size = 4, alpha = 0.8) +
+  geom_text(aes(label = season), vjust = -1.2, size = 3, fontface = "bold", show.legend = FALSE) +
+  
+  scale_color_manual(values = c("Packers" = "#203731", "Patriots" = "#002244")) +
+  labs(
+    title = "Offensive vs. Defensive Efficiency: Packers vs. Patriots",
+    x = "Avg Points Allowed (Defense)",
+    y = "Avg Points Scored (Offense)",
+    color = "Team"
+  ) +
+  expand_limits(y = c(min(combined_stats$avg_pts_scored) - 2, 
+                      max(combined_stats$avg_pts_scored) + 2)) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+
